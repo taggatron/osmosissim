@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Osmosis Explorer</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;600&family=Nunito:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>💧 Osmosis Explorer 💧</h1>
+            <p class="subtitle">See how water moves to balance things out!</p>
+        </header>
+
+        <main>
+            <div class="simulation-container">
+                <canvas id="simCanvas"></canvas>
+                <div class="membrane-label">Semi-permeable Membrane</div>
+                <div class="labels">
+                    <div class="label-left">Left Side</div>
+                    <div class="label-right">Right Side</div>
+                </div>
+            </div>
+            
+            <div class="status-bars">
+                <div class="bar-container">
+                    <span>Left Water Level</span>
+                    <div class="progress-bg"><div id="leftWaterBar" class="progress-fill" style="width: 50%"></div></div>
+                </div>
+                <div class="bar-container">
+                    <span>Right Water Level</span>
+                    <div class="progress-bg"><div id="rightWaterBar" class="progress-fill" style="width: 50%"></div></div>
+                </div>
+            </div>
+
+            <div class="controls-panel">
+                <div class="control-group">
+                    <h3>Left Side</h3>
+                    <label>Sugar Molecules: <span id="leftSoluteCount">10</span></label>
+                    <input type="range" id="leftSoluteSlider" min="0" max="30" value="10">
+                </div>
+                
+                <div class="control-group middle">
+                    
+                    <button id="resetBtn">Reset Experiment</button>
+                    <div class="legend">
+                        <div class="legend-item">
+                            <span class="dot water"></span> Water
+                        </div>
+                        <div class="legend-item">
+                            <span class="dot solute"></span> Sugar (Solute)
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <h3>Right Side</h3>
+                    <label>Sugar Molecules: <span id="rightSoluteCount">10</span></label>
+                    <input type="range" id="rightSoluteSlider" min="0" max="30" value="10">
+                </div>
+            </div>
+
+            <div class="explanation">
+                <h2>What is happening?</h2>
+                <p>
+                    <strong>Osmosis</strong> is the movement of water molecules through a <em>semi-permeable membrane</em>. 
+                    Water likes to go where there is less water and more "stuff" (like sugar or salt) to try and even things out!
+                </p>
+                <div class="tip-box">
+                    💡 <strong>Try this:</strong> Add lots of sugar to the RIGHT side and none to the LEFT. Watch the blue water molecules rush to the right side!
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
