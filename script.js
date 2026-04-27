@@ -1,375 +1,486 @@
-const canvas = document.getElementById('simCanvas');
-const ctx = canvas.getContext('2d');
+const concentrations = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0];
+const PRACTICAL_HOURS = 24;
+const RUN_DURATION_MS = 9000;
 
-// --- Configuration ---
-let width, height;
-const waterCount = 450; // Total water molecules (more visible)
-const waterRadius = 3;
-const soluteRadius = 8;
-const speed = 1; // Base speed for particles (Reduced from 2)
-const membraneGapSize = 12; // Gaps in membrane
-const membraneWidth = 6;
-const stickyDistance = 25; // Distance to stick
-const unstickChance = 0.005; // Chance to break free each frame
-const maxWatersPerSolute = 6; // Binding capacity per solute (hydration shell limit)
-
-// --- State ---
-let particles = [];
-let leftSoluteTarget = 10;
-let rightSoluteTarget = 10;
-
-// --- DOM Elements ---
-const leftSlider = document.getElementById('leftSoluteSlider');
-const rightSlider = document.getElementById('rightSoluteSlider');
-const leftCountSpan = document.getElementById('leftSoluteCount');
-const rightCountSpan = document.getElementById('rightSoluteCount');
+const isotonicSlider = document.getElementById('isotonicSlider');
+const isotonicValue = document.getElementById('isotonicValue');
+const runBtn = document.getElementById('runBtn');
 const resetBtn = document.getElementById('resetBtn');
+const timeLabel = document.getElementById('timeLabel');
+const runState = document.getElementById('runState');
+const timelineBar = document.getElementById('timelineBar');
+const beakerGrid = document.getElementById('beakerGrid');
+const resultsBody = document.getElementById('resultsBody');
+const summaryText = document.getElementById('summaryText');
+const chartCanvas = document.getElementById('resultsChart');
 
-// --- Resize Handling ---
-function resize() {
-    // Get the display size of the canvas
-    const rect = canvas.getBoundingClientRect();
-    // Increase internal resolution for sharpness on retina screens
-    const dpr = window.devicePixelRatio || 1;
-    
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+const state = {
+    isotonicPoint: parseFloat(isotonicSlider.value),
+    beakers: [],
+    chart: null,
+    running: false,
+    startTime: 0,
+    rafId: null
+};
 
-    // Reset any previous scaling to avoid compounding transforms
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    
-    // Adjust logic width/height to match CSS pixels (easier for math)
-    width = rect.width;
-    height = rect.height;
-
-    // Preserve existing particle counts relative if needed, or just reset.
-    // Given the simplicity, a reset is cleaner visually than squashing particles.
-    initParticles();
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
 }
 
-// --- Classes ---
-class Particle {
-    constructor(type, x, y) {
-        this.type = type; // 'water' or 'solute'
-        this.x = x;
-        this.y = y;
-        this.radius = type === 'water' ? waterRadius : soluteRadius;
-        this.color = type === 'water' ? '#3498db' : '#ff6b6b';
-        
-        // Random velocity
-        const angle = Math.random() * Math.PI * 2;
-        this.vx = Math.cos(angle) * speed;
-        this.vy = Math.sin(angle) * speed;
-        
-        // Slower movement for heavy solute
-        if (type === 'solute') {
-            this.vx *= 0.5;
-            this.vy *= 0.5;
-        }
-
-        // Per-solute binding capacity (how many waters can stick)
-        if (type === 'solute') {
-            this.boundCount = 0;
-            this.maxBinds = maxWatersPerSolute;
-        }
-
-        // Binding state for hydration shells
-        this.boundTo = null; // Reference to solute particle
-        this.angleOffset = Math.random() * Math.PI * 2; // Where it sticks on the solute
-    }
-
-    update() {
-        // If bound to a solute, follow it
-        if (this.boundTo) {
-            // Check if solute still exists (it might have been removed by slider)
-            if (!particles.includes(this.boundTo)) {
-                this.boundTo = null;
-            } else {
-                // Stick to solute surface
-                const targetX = this.boundTo.x + Math.cos(this.angleOffset) * (soluteRadius + waterRadius + 2);
-                const targetY = this.boundTo.y + Math.sin(this.angleOffset) * (soluteRadius + waterRadius + 2);
-                
-                // Ease towards position
-                this.x += (targetX - this.x) * 0.2;
-                this.y += (targetY - this.y) * 0.2;
-                
-                // Slowly rotate
-                this.angleOffset += 0.05;
-
-                // Random chance to unstick
-                if (Math.random() < unstickChance) {
-                    if (typeof this.boundTo.boundCount === 'number') {
-                        this.boundTo.boundCount = Math.max(0, this.boundTo.boundCount - 1);
-                    }
-                    this.boundTo = null;
-                    // Give it a kick away
-                    this.vx = (Math.random() - 0.5) * speed * 2;
-                    this.vy = (Math.random() - 0.5) * speed * 2;
-                }
-                
-                return; // Skip normal movement physics
-            }
-        }
-
-        // Normal movement when not bound
-        this.x += this.vx;
-        this.y += this.vy;
-
-        // Wall Collisions
-        if (this.x - this.radius < 0) {
-            this.x = this.radius;
-            this.vx *= -1;
-        }
-        if (this.x + this.radius > width) {
-            this.x = width - this.radius;
-            this.vx *= -1;
-        }
-        if (this.y - this.radius < 0) {
-            this.y = this.radius;
-            this.vy *= -1;
-        }
-        if (this.y + this.radius > height) {
-            this.y = height - this.radius;
-            this.vy *= -1;
-        }
-
-        // Membrane Collision
-        const membraneX = width / 2;
-        const distToMembrane = Math.abs(this.x - membraneX);
-        const hittingMembrane = distToMembrane < (this.radius + membraneWidth/2);
-        
-        // Only trigger collision if moving TOWARDS the membrane
-        // If on left (x < mid) and moving right (vx > 0)
-        // If on right (x > mid) and moving left (vx < 0)
-        const movingTowards = (this.x < membraneX && this.vx > 0) || (this.x > membraneX && this.vx < 0);
-        
-        // Membrane only blocks SOLUTE. Water passes straight through.
-        if (hittingMembrane && movingTowards && this.type === 'solute') {
-            // Solute BLOCKED
-            // Bounce back
-            if (this.x < membraneX) {
-                this.x = membraneX - membraneWidth/2 - this.radius - 1;
-                this.vx = -Math.abs(this.vx);
-            } else {
-                this.x = membraneX + membraneWidth/2 + this.radius + 1;
-                this.vx = Math.abs(this.vx);
-            }
-        }
-    }
-
-    draw() {
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = this.color;
-        ctx.fill();
-        
-        // Add a highlight reflection for "shiny" look
-        ctx.fillStyle = 'rgba(255,255,255,0.4)';
-        ctx.beginPath();
-        ctx.arc(this.x - this.radius * 0.3, this.y - this.radius * 0.3, this.radius * 0.3, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Stroke for solute to make them pop
-        if (this.type === 'solute') {
-            ctx.strokeStyle = 'white';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-        }
-    }
+function randomRange(min, max) {
+    return min + Math.random() * (max - min);
 }
 
-// --- Initialization ---
-function initParticles() {
-    particles = [];
-    
-    // Add Water
-    // Distribute evenly initially
-    for (let i = 0; i < waterCount; i++) {
-        const x = Math.random() * width;
-        const y = Math.random() * height;
-        particles.push(new Particle('water', x, y));
-    }
-    
-    updateSolutes();
+function easeInOutSine(t) {
+    return -(Math.cos(Math.PI * t) - 1) / 2;
 }
 
-function updateSolutes() {
-    // Current counts
-    const currentLeft = particles.filter(p => p.type === 'solute' && p.x < width/2).length;
-    const currentRight = particles.filter(p => p.type === 'solute' && p.x > width/2).length;
-    
-    // Adjust Left
-    // Get ALL solutes currently on the left side
-    const currentLeftSolutes = particles.filter(p => p.type === 'solute' && p.x < width/2);
-    const currentLeftCount = currentLeftSolutes.length;
-    
-    if (currentLeftCount < leftSoluteTarget) {
-        for (let i = 0; i < leftSoluteTarget - currentLeftCount; i++) {
-            particles.push(new Particle('solute', Math.random() * (width/2 - 20), Math.random() * height));
-        }
-    } else if (currentLeftCount > leftSoluteTarget) {
-        let toRemove = currentLeftCount - leftSoluteTarget;
-        // Ideally remove the oldest or random ones from the left side
-        // Iterate backwards through main array to safely splice
-        for (let i = particles.length - 1; i >= 0; i--) {
-            if (toRemove > 0 && particles[i].type === 'solute' && particles[i].x < width/2) {
-                particles.splice(i, 1);
-                toRemove--;
-            }
-        }
-    }
-
-    // Adjust Right
-    const currentRightSolutes = particles.filter(p => p.type === 'solute' && p.x > width/2);
-    const currentRightCount = currentRightSolutes.length;
-
-    if (currentRightCount < rightSoluteTarget) {
-        for (let i = 0; i < rightSoluteTarget - currentRightCount; i++) {
-            particles.push(new Particle('solute', (width/2 + 20) + Math.random() * (width/2 - 30), Math.random() * height));
-        }
-    } else if (currentRightCount > rightSoluteTarget) {
-        let toRemove = currentRightCount - rightSoluteTarget;
-        for (let i = particles.length - 1; i >= 0; i--) {
-            if (toRemove > 0 && particles[i].type === 'solute' && particles[i].x > width/2) {
-                particles.splice(i, 1);
-                toRemove--;
-            }
-        }
-    }
+function formatMass(value) {
+    return `${value.toFixed(2)} g`;
 }
 
-// --- Animation Loop ---
-function animate() {
-    ctx.clearRect(0, 0, width, height);
+function formatPercent(value) {
+    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+}
 
-    // Draw Membrane
-    ctx.fillStyle = '#bdc3c7';
-    const membraneX = width / 2;
-    
-    // Draw dashed line for membrane
-    // Make it look more porous: larger gaps, smaller solid sections
-    const membranePeriod = membraneGapSize * 3;
-    const gapHeight = membraneGapSize * 2; // 2/3 of the membrane is gap
-    const solidHeight = membranePeriod - gapHeight; // 1/3 solid
-    for (let y = 0; y < height; y += membranePeriod) {
-        ctx.fillRect(membraneX - membraneWidth/2, y + gapHeight, membraneWidth, solidHeight);
+function calculatePercentChange(initialMass, currentMass) {
+    return ((currentMass - initialMass) / initialMass) * 100;
+}
+
+function colorForConcentration(concentration) {
+    const ratio = concentration / concentrations[concentrations.length - 1];
+    const hue = 197 + ratio * 20;
+    const sat = 58 + ratio * 10;
+    const lightStrong = 74 - ratio * 20;
+    const lightSoft = 88 - ratio * 14;
+    return {
+        soft: `hsl(${hue} ${sat}% ${lightSoft}%)`,
+        strong: `hsl(${hue} ${sat}% ${lightStrong}%)`
+    };
+}
+
+function movementLabel(percentChange) {
+    if (percentChange > 0.35) {
+        return 'Water entered tissue';
     }
-    
-    // Separate water from solutes for layering (draw solutes on top)
-    const waterParticles = [];
-    const soluteParticles = [];
+    if (percentChange < -0.35) {
+        return 'Water left tissue';
+    }
+    return 'Near isotonic';
+}
 
-    particles.forEach(p => {
-        p.update();
-        if(p.type === 'solute') soluteParticles.push(p);
-        else waterParticles.push(p);
+function changeClass(percentChange) {
+    if (percentChange > 0.12) {
+        return 'positive';
+    }
+    if (percentChange < -0.12) {
+        return 'negative';
+    }
+    return 'neutral';
+}
+
+function modeledPercentChange(concentration, isotonicPoint) {
+    const difference = isotonicPoint - concentration;
+    const linearComponent = difference * 24;
+    const curveComponent = difference * Math.abs(difference) * 8;
+    const noise = randomRange(-0.7, 0.7);
+    return clamp(linearComponent + curveComponent + noise, -24, 18);
+}
+
+function createBeakerCard(concentration) {
+    const card = document.createElement('article');
+    card.className = 'beaker-card';
+
+    const color = colorForConcentration(concentration);
+
+    card.innerHTML = `
+        <h3 class="beaker-title">${concentration.toFixed(2)} mol/dm3</h3>
+        <div class="beaker-visual">
+            <div class="solution" style="--fill-soft: ${color.soft}; --fill-strong: ${color.strong};">
+                <span class="bubble b1"></span>
+                <span class="bubble b2"></span>
+                <span class="bubble b3"></span>
+                <div class="potato-cylinder"></div>
+            </div>
+        </div>
+        <div class="mass-readings">
+            <p class="mass-line">Initial: <strong data-field="initial">5.00 g</strong></p>
+            <p class="mass-line">Current: <strong data-field="current">5.00 g</strong></p>
+            <p class="mass-line">Final: <strong data-field="final">-</strong></p>
+        </div>
+        <div class="change-row">
+            <span class="change-pill neutral" data-field="percent">+0.00%</span>
+            <span class="direction-indicator" data-field="direction">Ready</span>
+        </div>
+    `;
+
+    const refs = {
+        card,
+        cylinder: card.querySelector('.potato-cylinder'),
+        initial: card.querySelector('[data-field="initial"]'),
+        current: card.querySelector('[data-field="current"]'),
+        final: card.querySelector('[data-field="final"]'),
+        percent: card.querySelector('[data-field="percent"]'),
+        direction: card.querySelector('[data-field="direction"]')
+    };
+
+    beakerGrid.appendChild(card);
+    return refs;
+}
+
+function initializeBeakers() {
+    beakerGrid.innerHTML = '';
+    state.beakers = concentrations.map((concentration) => {
+        const refs = createBeakerCard(concentration);
+        return {
+            concentration,
+            refs,
+            initialMass: 0,
+            finalMass: 0,
+            currentMass: 0,
+            targetPercent: 0
+        };
     });
+}
 
-    // Draw water first
-    waterParticles.forEach(p => p.draw());
-    // Draw solutes on top
-    soluteParticles.forEach(p => p.draw());
+function prepareScenario(options = { regenerateInitialMass: true }) {
+    state.beakers.forEach((beaker) => {
+        if (options.regenerateInitialMass || beaker.initialMass === 0) {
+            beaker.initialMass = randomRange(4.8, 5.25);
+        }
 
-    // --- Interaction Physics: Hydration Shells ---
-    // Make water stick to solutes
-    waterParticles.forEach(water => {
-        if (!water.boundTo) {
-            // Check against all solutes
-            for (let solute of soluteParticles) {
-                // Only allow so many waters to stick to each solute
-                if (typeof solute.boundCount === 'number' && typeof solute.maxBinds === 'number') {
-                    if (solute.boundCount >= solute.maxBinds) continue;
+        beaker.targetPercent = modeledPercentChange(beaker.concentration, state.isotonicPoint);
+        beaker.finalMass = beaker.initialMass * (1 + beaker.targetPercent / 100);
+        beaker.currentMass = beaker.initialMass;
+    });
+}
+
+function renderBeaker(beaker, progress, showFinal) {
+    const eased = easeInOutSine(progress);
+    beaker.currentMass =
+        beaker.initialMass + (beaker.finalMass - beaker.initialMass) * eased;
+
+    const currentPercent = calculatePercentChange(beaker.initialMass, beaker.currentMass);
+    const relativeScale = clamp(beaker.currentMass / beaker.initialMass, 0.72, 1.28);
+    const widthScale = clamp(0.94 + (relativeScale - 1) * 0.45, 0.84, 1.16);
+
+    beaker.refs.cylinder.style.transform =
+        `translateX(-50%) scaleX(${widthScale.toFixed(3)}) scaleY(${relativeScale.toFixed(3)})`;
+    beaker.refs.initial.textContent = formatMass(beaker.initialMass);
+    beaker.refs.current.textContent = formatMass(beaker.currentMass);
+    beaker.refs.final.textContent = showFinal ? formatMass(beaker.finalMass) : '-';
+    beaker.refs.percent.textContent = formatPercent(currentPercent);
+    beaker.refs.percent.className = `change-pill ${changeClass(currentPercent)}`;
+    beaker.refs.direction.textContent = movementLabel(currentPercent);
+}
+
+function renderAllBeakers(progress, showFinal) {
+    state.beakers.forEach((beaker) => renderBeaker(beaker, progress, showFinal));
+}
+
+function renderResultsTable(showFinal) {
+    resultsBody.innerHTML = '';
+
+    state.beakers.forEach((beaker) => {
+        const percent = calculatePercentChange(beaker.initialMass, beaker.currentMass);
+        const row = document.createElement('tr');
+
+        row.innerHTML = `
+            <td>${beaker.concentration.toFixed(2)}</td>
+            <td>${beaker.initialMass.toFixed(2)}</td>
+            <td>${showFinal ? beaker.finalMass.toFixed(2) : beaker.currentMass.toFixed(2)}</td>
+            <td>${percent.toFixed(2)}</td>
+        `;
+
+        resultsBody.appendChild(row);
+    });
+}
+
+function getCurrentPoints() {
+    return state.beakers.map((beaker) => ({
+        x: Number(beaker.concentration.toFixed(2)),
+        y: Number(calculatePercentChange(beaker.initialMass, beaker.currentMass).toFixed(3))
+    }));
+}
+
+function linearRegression(points) {
+    const n = points.length;
+    if (n < 2) {
+        return null;
+    }
+
+    const sums = points.reduce(
+        (acc, point) => {
+            acc.x += point.x;
+            acc.y += point.y;
+            acc.xy += point.x * point.y;
+            acc.xx += point.x * point.x;
+            return acc;
+        },
+        { x: 0, y: 0, xy: 0, xx: 0 }
+    );
+
+    const denominator = n * sums.xx - sums.x * sums.x;
+    if (Math.abs(denominator) < 1e-8) {
+        return null;
+    }
+
+    const slope = (n * sums.xy - sums.x * sums.y) / denominator;
+    const intercept = (sums.y - slope * sums.x) / n;
+    return { slope, intercept };
+}
+
+function updateChart(showTrend) {
+    const points = getCurrentPoints();
+    state.chart.data.datasets[0].data = points;
+
+    if (!showTrend) {
+        state.chart.data.datasets[1].data = [];
+        state.chart.update('none');
+        return;
+    }
+
+    const regression = linearRegression(points);
+    if (!regression) {
+        state.chart.data.datasets[1].data = [];
+        state.chart.update('none');
+        return;
+    }
+
+    const minX = concentrations[0];
+    const maxX = concentrations[concentrations.length - 1];
+    state.chart.data.datasets[1].data = [
+        { x: minX, y: regression.slope * minX + regression.intercept },
+        { x: maxX, y: regression.slope * maxX + regression.intercept }
+    ];
+
+    state.chart.update('none');
+}
+
+function updateSummaryAfterRun() {
+    const points = getCurrentPoints();
+    const regression = linearRegression(points);
+
+    if (!regression || Math.abs(regression.slope) < 1e-8) {
+        summaryText.textContent = 'No clear isotonic crossing was detected in this run.';
+        return;
+    }
+
+    const estimatedIsotonic = -regression.intercept / regression.slope;
+    const inRange =
+        estimatedIsotonic >= concentrations[0] &&
+        estimatedIsotonic <= concentrations[concentrations.length - 1];
+
+    if (inRange) {
+        summaryText.textContent = `Estimated isotonic concentration from the line of best fit: ${estimatedIsotonic.toFixed(2)} mol/dm3.`;
+    } else {
+        summaryText.textContent =
+            `Best-fit isotonic estimate (${estimatedIsotonic.toFixed(2)} mol/dm3) lies outside the tested range.`;
+    }
+}
+
+function resetVisualProgress() {
+    timelineBar.style.width = '0%';
+    timeLabel.textContent = 'Time elapsed: 0 h';
+    runState.textContent = 'Ready';
+    document.body.classList.remove('running');
+}
+
+function finishRun() {
+    state.running = false;
+    runBtn.disabled = false;
+    runBtn.textContent = 'Run Again';
+
+    renderAllBeakers(1, true);
+    renderResultsTable(true);
+    updateChart(true);
+
+    timelineBar.style.width = '100%';
+    timeLabel.textContent = `Time elapsed: ${PRACTICAL_HOURS} h`;
+    runState.textContent = 'Complete';
+    document.body.classList.remove('running');
+
+    updateSummaryAfterRun();
+}
+
+function runFrame(timestamp) {
+    if (!state.running) {
+        return;
+    }
+
+    const elapsed = timestamp - state.startTime;
+    const progress = clamp(elapsed / RUN_DURATION_MS, 0, 1);
+    const hour = progress * PRACTICAL_HOURS;
+
+    renderAllBeakers(progress, progress >= 1);
+    renderResultsTable(progress >= 1);
+    updateChart(progress > 0.06);
+
+    timelineBar.style.width = `${(progress * 100).toFixed(1)}%`;
+    timeLabel.textContent = `Time elapsed: ${hour.toFixed(1)} h`;
+    runState.textContent = 'Diffusing...';
+
+    if (progress >= 1) {
+        finishRun();
+        return;
+    }
+
+    state.rafId = window.requestAnimationFrame(runFrame);
+}
+
+function startRun() {
+    if (state.running) {
+        return;
+    }
+
+    state.running = true;
+    state.startTime = performance.now();
+    runBtn.disabled = true;
+    runBtn.textContent = 'Running...';
+    runState.textContent = 'Diffusing...';
+    document.body.classList.add('running');
+    summaryText.textContent = 'Practical running: collecting mass changes over 24 simulated hours.';
+
+    state.rafId = window.requestAnimationFrame(runFrame);
+}
+
+function resetExperiment() {
+    if (state.rafId) {
+        window.cancelAnimationFrame(state.rafId);
+        state.rafId = null;
+    }
+
+    state.running = false;
+    runBtn.disabled = false;
+    runBtn.textContent = 'Start 24h Practical';
+
+    prepareScenario({ regenerateInitialMass: true });
+    renderAllBeakers(0, false);
+    renderResultsTable(false);
+    updateChart(false);
+    resetVisualProgress();
+    summaryText.textContent = 'Run the practical to generate data points and a trend line.';
+}
+
+function createChart() {
+    state.chart = new Chart(chartCanvas, {
+        type: 'scatter',
+        data: {
+            datasets: [
+                {
+                    label: '% change in mass',
+                    data: [],
+                    backgroundColor: '#0f9bb8',
+                    borderColor: '#0f9bb8',
+                    pointRadius: 5,
+                    pointHoverRadius: 6,
+                    showLine: false
+                },
+                {
+                    label: 'Line of best fit',
+                    type: 'line',
+                    data: [],
+                    borderColor: '#f0932b',
+                    borderWidth: 2,
+                    borderDash: [7, 6],
+                    pointRadius: 0,
+                    tension: 0,
+                    fill: false
                 }
-
-                const dx = water.x - solute.x;
-                const dy = water.y - solute.y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
-                
-                // If close enough, stick!
-                // Don't stick if it's already crossing the membrane roughly
-                if (dist < stickyDistance) {
-                    // Check if they are on same side of membrane to avoid sticking through wall
-                    const mid = width/2;
-                    if ((water.x < mid && solute.x < mid) || (water.x > mid && solute.x > mid)) {
-                         water.boundTo = solute;
-                         // Calculate initial angle so it doesn't snap weirdly
-                         water.angleOffset = Math.atan2(dy, dx);
-                         if (typeof solute.boundCount === 'number') {
-                             solute.boundCount += 1;
-                         }
-                         break; // Bound to one, stop checking
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: {
+                legend: {
+                    labels: {
+                        usePointStyle: true,
+                        boxWidth: 10
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label(context) {
+                            const x = context.parsed.x.toFixed(2);
+                            const y = context.parsed.y.toFixed(2);
+                            return `${x} mol/dm3, ${y}%`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'linear',
+                    min: 0,
+                    max: 1,
+                    ticks: {
+                        stepSize: 0.2,
+                        callback(value) {
+                            return Number(value).toFixed(1);
+                        }
+                    },
+                    grid: {
+                        color: '#e2eaf4'
+                    },
+                    title: {
+                        display: true,
+                        text: 'Sucrose concentration (mol/dm3)'
+                    }
+                },
+                y: {
+                    suggestedMin: -22,
+                    suggestedMax: 18,
+                    ticks: {
+                        callback(value) {
+                            return `${value}%`;
+                        }
+                    },
+                    grid: {
+                        color(context) {
+                            return context.tick.value === 0 ? '#9fb3c8' : '#e2eaf4';
+                        },
+                        lineWidth(context) {
+                            return context.tick.value === 0 ? 2 : 1;
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: '% change in mass'
                     }
                 }
             }
         }
     });
-
-    // Calculate Water Balance (water level indicators)
-    // We use current positions every frame, so bars match where the water actually is.
-    const leftWater = waterParticles.filter(p => p.x < width/2).length;
-    const rightWater = waterParticles.filter(p => p.x > width/2).length;
-    
-    // Update bars
-    const totalWater = waterParticles.length;
-    // Prevent divide by zero
-    if (totalWater > 0) {
-        const leftPercent = (leftWater / totalWater) * 100;
-        const rightPercent = (rightWater / totalWater) * 100;
-
-        const leftBar = document.getElementById('leftWaterBar');
-        const rightBar = document.getElementById('rightWaterBar');
-        // Smooth the UI a bit so it doesn't jitter
-        const smoothValue = (current, target) => current + (target - current) * 0.12;
-        if (leftBar && rightBar) {
-            const currentLeft = parseFloat(leftBar.style.width || '50') || 50;
-            const nextLeft = Math.max(0, Math.min(100, smoothValue(currentLeft, leftPercent)));
-            leftBar.style.width = nextLeft.toFixed(1) + '%';
-            rightBar.style.width = (100 - nextLeft).toFixed(1) + '%';
-        } else {
-            if (leftBar) {
-                const currentLeft = parseFloat(leftBar.style.width || '50') || 50;
-                const nextLeft = Math.max(0, Math.min(100, smoothValue(currentLeft, leftPercent)));
-                leftBar.style.width = nextLeft.toFixed(1) + '%';
-            }
-            if (rightBar) {
-                const currentRight = parseFloat(rightBar.style.width || '50') || 50;
-                const nextRight = Math.max(0, Math.min(100, smoothValue(currentRight, rightPercent)));
-                rightBar.style.width = nextRight.toFixed(1) + '%';
-            }
-        }
-        
-        // Optional: color change if unbalanced
-        // ...
-    }
-
-    requestAnimationFrame(animate);
 }
 
-// --- Event Listeners ---
-leftSlider.addEventListener('input', (e) => {
-    leftSoluteTarget = parseInt(e.target.value);
-    leftCountSpan.textContent = leftSoluteTarget;
-    updateSolutes();
-});
+function onIsotonicInput(event) {
+    state.isotonicPoint = parseFloat(event.target.value);
+    isotonicValue.textContent = state.isotonicPoint.toFixed(2);
 
-rightSlider.addEventListener('input', (e) => {
-    rightSoluteTarget = parseInt(e.target.value);
-    rightCountSpan.textContent = rightSoluteTarget;
-    updateSolutes();
-});
+    if (state.running) {
+        return;
+    }
 
-resetBtn.addEventListener('click', () => {
-    leftSoluteTarget = 10;
-    rightSoluteTarget = 10;
-    leftSlider.value = 10;
-    rightSlider.value = 10;
-    leftCountSpan.textContent = 10;
-    rightCountSpan.textContent = 10;
-    initParticles();
-});
+    prepareScenario({ regenerateInitialMass: false });
+    renderAllBeakers(0, false);
+    renderResultsTable(false);
+    updateChart(false);
+    summaryText.textContent = 'Isotonic estimate updated. Start the practical to collect new results.';
+}
 
-window.addEventListener('resize', resize);
+function setupEvents() {
+    runBtn.addEventListener('click', startRun);
+    resetBtn.addEventListener('click', resetExperiment);
+    isotonicSlider.addEventListener('input', onIsotonicInput);
+}
 
-// Start
-resize();
-animate();
+function init() {
+    initializeBeakers();
+    createChart();
+    setupEvents();
+    resetExperiment();
+}
+
+init();
