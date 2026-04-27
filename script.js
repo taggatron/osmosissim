@@ -14,12 +14,43 @@ const resultsBody = document.getElementById('resultsBody');
 const summaryText = document.getElementById('summaryText');
 const chartCanvas = document.getElementById('resultsChart');
 
+const osmosisCanvas = document.getElementById('osmosisCanvas');
+const osmosisLeftSlider = document.getElementById('osmosisLeftSoluteSlider');
+const osmosisRightSlider = document.getElementById('osmosisRightSoluteSlider');
+const osmosisLeftCount = document.getElementById('osmosisLeftSoluteCount');
+const osmosisRightCount = document.getElementById('osmosisRightSoluteCount');
+const osmosisResetBtn = document.getElementById('osmosisResetBtn');
+const osmosisLeftWaterBar = document.getElementById('osmosisLeftWaterBar');
+const osmosisRightWaterBar = document.getElementById('osmosisRightWaterBar');
+
 const state = {
     isotonicPoint: parseFloat(isotonicSlider.value),
     beakers: [],
     chart: null,
     running: false,
     startTime: 0,
+    rafId: null
+};
+
+const OSMOSIS_CONFIG = {
+    waterCount: 420,
+    waterRadius: 2.8,
+    soluteRadius: 7,
+    speed: 0.95,
+    membraneGapSize: 12,
+    membraneWidth: 6,
+    stickyDistance: 22,
+    unstickChance: 0.004,
+    maxWatersPerSolute: 6
+};
+
+const osmosisState = {
+    particles: [],
+    width: 0,
+    height: 0,
+    ctx: null,
+    leftSoluteTarget: 10,
+    rightSoluteTarget: 10,
     rafId: null
 };
 
@@ -470,6 +501,371 @@ function onIsotonicInput(event) {
     summaryText.textContent = 'Isotonic estimate updated. Start the practical to collect new results.';
 }
 
+class OsmosisParticle {
+    constructor(type, x, y) {
+        this.type = type;
+        this.x = x;
+        this.y = y;
+        this.radius = type === 'water' ? OSMOSIS_CONFIG.waterRadius : OSMOSIS_CONFIG.soluteRadius;
+        this.color = type === 'water' ? '#2b9fc6' : '#f08f52';
+
+        const angle = Math.random() * Math.PI * 2;
+        this.vx = Math.cos(angle) * OSMOSIS_CONFIG.speed;
+        this.vy = Math.sin(angle) * OSMOSIS_CONFIG.speed;
+
+        if (type === 'solute') {
+            this.vx *= 0.55;
+            this.vy *= 0.55;
+            this.boundCount = 0;
+            this.maxBinds = OSMOSIS_CONFIG.maxWatersPerSolute;
+        }
+
+        this.boundTo = null;
+        this.angleOffset = Math.random() * Math.PI * 2;
+    }
+
+    update(sim) {
+        if (this.boundTo) {
+            if (!sim.particles.includes(this.boundTo)) {
+                this.boundTo = null;
+            } else {
+                const targetX =
+                    this.boundTo.x + Math.cos(this.angleOffset) * (OSMOSIS_CONFIG.soluteRadius + OSMOSIS_CONFIG.waterRadius + 2);
+                const targetY =
+                    this.boundTo.y + Math.sin(this.angleOffset) * (OSMOSIS_CONFIG.soluteRadius + OSMOSIS_CONFIG.waterRadius + 2);
+
+                this.x += (targetX - this.x) * 0.24;
+                this.y += (targetY - this.y) * 0.24;
+                this.angleOffset += 0.045;
+
+                if (Math.random() < OSMOSIS_CONFIG.unstickChance) {
+                    if (typeof this.boundTo.boundCount === 'number') {
+                        this.boundTo.boundCount = Math.max(0, this.boundTo.boundCount - 1);
+                    }
+                    this.boundTo = null;
+                    this.vx = (Math.random() - 0.5) * OSMOSIS_CONFIG.speed * 2;
+                    this.vy = (Math.random() - 0.5) * OSMOSIS_CONFIG.speed * 2;
+                }
+
+                return;
+            }
+        }
+
+        this.x += this.vx;
+        this.y += this.vy;
+
+        if (this.x - this.radius < 0) {
+            this.x = this.radius;
+            this.vx *= -1;
+        }
+        if (this.x + this.radius > sim.width) {
+            this.x = sim.width - this.radius;
+            this.vx *= -1;
+        }
+        if (this.y - this.radius < 0) {
+            this.y = this.radius;
+            this.vy *= -1;
+        }
+        if (this.y + this.radius > sim.height) {
+            this.y = sim.height - this.radius;
+            this.vy *= -1;
+        }
+
+        const membraneX = sim.width / 2;
+        const distToMembrane = Math.abs(this.x - membraneX);
+        const touchingMembrane = distToMembrane < this.radius + OSMOSIS_CONFIG.membraneWidth / 2;
+        const movingTowards =
+            (this.x < membraneX && this.vx > 0) ||
+            (this.x > membraneX && this.vx < 0);
+
+        if (this.type === 'solute' && touchingMembrane && movingTowards) {
+            if (this.x < membraneX) {
+                this.x = membraneX - OSMOSIS_CONFIG.membraneWidth / 2 - this.radius - 1;
+                this.vx = -Math.abs(this.vx);
+            } else {
+                this.x = membraneX + OSMOSIS_CONFIG.membraneWidth / 2 + this.radius + 1;
+                this.vx = Math.abs(this.vx);
+            }
+        }
+    }
+
+    draw(ctx) {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(
+            this.x - this.radius * 0.35,
+            this.y - this.radius * 0.35,
+            this.radius * 0.35,
+            0,
+            Math.PI * 2
+        );
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+        ctx.fill();
+
+        if (this.type === 'solute') {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+        }
+    }
+}
+
+function updateOsmosisBars(leftWater, rightWater) {
+    const totalWater = leftWater + rightWater;
+    if (!totalWater || !osmosisLeftWaterBar || !osmosisRightWaterBar) {
+        return;
+    }
+
+    const targetLeft = (leftWater / totalWater) * 100;
+    const currentLeft = parseFloat(osmosisLeftWaterBar.style.width || '50') || 50;
+    const smoothedLeft = currentLeft + (targetLeft - currentLeft) * 0.12;
+    const boundedLeft = clamp(smoothedLeft, 0, 100);
+
+    osmosisLeftWaterBar.style.width = `${boundedLeft.toFixed(1)}%`;
+    osmosisRightWaterBar.style.width = `${(100 - boundedLeft).toFixed(1)}%`;
+}
+
+function drawOsmosisMembrane() {
+    const { ctx, width, height } = osmosisState;
+    const membraneX = width / 2;
+    const membranePeriod = OSMOSIS_CONFIG.membraneGapSize * 3;
+    const gapHeight = OSMOSIS_CONFIG.membraneGapSize * 2;
+    const solidHeight = membranePeriod - gapHeight;
+
+    ctx.fillStyle = 'rgba(96, 120, 149, 0.85)';
+    for (let y = 0; y < height; y += membranePeriod) {
+        ctx.fillRect(
+            membraneX - OSMOSIS_CONFIG.membraneWidth / 2,
+            y + gapHeight,
+            OSMOSIS_CONFIG.membraneWidth,
+            solidHeight
+        );
+    }
+}
+
+function updateOsmosisHydration(waterParticles, soluteParticles) {
+    waterParticles.forEach((water) => {
+        if (water.boundTo) {
+            return;
+        }
+
+        for (let i = 0; i < soluteParticles.length; i += 1) {
+            const solute = soluteParticles[i];
+
+            if (typeof solute.boundCount === 'number' && solute.boundCount >= solute.maxBinds) {
+                continue;
+            }
+
+            const dx = water.x - solute.x;
+            const dy = water.y - solute.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance >= OSMOSIS_CONFIG.stickyDistance) {
+                continue;
+            }
+
+            const mid = osmosisState.width / 2;
+            const sameSide =
+                (water.x < mid && solute.x < mid) ||
+                (water.x > mid && solute.x > mid);
+
+            if (sameSide) {
+                water.boundTo = solute;
+                water.angleOffset = Math.atan2(dy, dx);
+                solute.boundCount += 1;
+                break;
+            }
+        }
+    });
+}
+
+function updateOsmosisSolutes() {
+    const half = osmosisState.width / 2;
+    if (!half) {
+        return;
+    }
+
+    const leftSolutes = osmosisState.particles.filter(
+        (particle) => particle.type === 'solute' && particle.x < half
+    );
+    const rightSolutes = osmosisState.particles.filter(
+        (particle) => particle.type === 'solute' && particle.x > half
+    );
+
+    if (leftSolutes.length < osmosisState.leftSoluteTarget) {
+        for (let i = 0; i < osmosisState.leftSoluteTarget - leftSolutes.length; i += 1) {
+            osmosisState.particles.push(
+                new OsmosisParticle(
+                    'solute',
+                    Math.random() * (half - 16),
+                    Math.random() * osmosisState.height
+                )
+            );
+        }
+    } else if (leftSolutes.length > osmosisState.leftSoluteTarget) {
+        let toRemove = leftSolutes.length - osmosisState.leftSoluteTarget;
+        for (let i = osmosisState.particles.length - 1; i >= 0 && toRemove > 0; i -= 1) {
+            const particle = osmosisState.particles[i];
+            if (particle.type === 'solute' && particle.x < half) {
+                osmosisState.particles.splice(i, 1);
+                toRemove -= 1;
+            }
+        }
+    }
+
+    if (rightSolutes.length < osmosisState.rightSoluteTarget) {
+        for (let i = 0; i < osmosisState.rightSoluteTarget - rightSolutes.length; i += 1) {
+            osmosisState.particles.push(
+                new OsmosisParticle(
+                    'solute',
+                    half + 16 + Math.random() * (half - 28),
+                    Math.random() * osmosisState.height
+                )
+            );
+        }
+    } else if (rightSolutes.length > osmosisState.rightSoluteTarget) {
+        let toRemove = rightSolutes.length - osmosisState.rightSoluteTarget;
+        for (let i = osmosisState.particles.length - 1; i >= 0 && toRemove > 0; i -= 1) {
+            const particle = osmosisState.particles[i];
+            if (particle.type === 'solute' && particle.x > half) {
+                osmosisState.particles.splice(i, 1);
+                toRemove -= 1;
+            }
+        }
+    }
+}
+
+function initializeOsmosisParticles() {
+    osmosisState.particles = [];
+
+    for (let i = 0; i < OSMOSIS_CONFIG.waterCount; i += 1) {
+        osmosisState.particles.push(
+            new OsmosisParticle(
+                'water',
+                Math.random() * osmosisState.width,
+                Math.random() * osmosisState.height
+            )
+        );
+    }
+
+    updateOsmosisSolutes();
+}
+
+function animateOsmosis() {
+    const { ctx, width, height } = osmosisState;
+    if (!ctx || !width || !height) {
+        return;
+    }
+
+    ctx.clearRect(0, 0, width, height);
+    drawOsmosisMembrane();
+
+    const waterParticles = [];
+    const soluteParticles = [];
+
+    osmosisState.particles.forEach((particle) => {
+        particle.update(osmosisState);
+        if (particle.type === 'water') {
+            waterParticles.push(particle);
+        } else {
+            soluteParticles.push(particle);
+        }
+    });
+
+    updateOsmosisHydration(waterParticles, soluteParticles);
+
+    waterParticles.forEach((particle) => particle.draw(ctx));
+    soluteParticles.forEach((particle) => particle.draw(ctx));
+
+    const half = width / 2;
+    const leftWater = waterParticles.filter((particle) => particle.x < half).length;
+    const rightWater = waterParticles.length - leftWater;
+    updateOsmosisBars(leftWater, rightWater);
+
+    osmosisState.rafId = window.requestAnimationFrame(animateOsmosis);
+}
+
+function resetOsmosisDemo() {
+    osmosisState.leftSoluteTarget = 10;
+    osmosisState.rightSoluteTarget = 10;
+
+    if (osmosisLeftSlider && osmosisRightSlider) {
+        osmosisLeftSlider.value = '10';
+        osmosisRightSlider.value = '10';
+    }
+    if (osmosisLeftCount && osmosisRightCount) {
+        osmosisLeftCount.textContent = '10';
+        osmosisRightCount.textContent = '10';
+    }
+
+    initializeOsmosisParticles();
+    if (osmosisLeftWaterBar && osmosisRightWaterBar) {
+        osmosisLeftWaterBar.style.width = '50%';
+        osmosisRightWaterBar.style.width = '50%';
+    }
+}
+
+function resizeOsmosisCanvas() {
+    if (!osmosisCanvas || !osmosisState.ctx) {
+        return;
+    }
+
+    const rect = osmosisCanvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+        return;
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+    osmosisCanvas.width = Math.round(rect.width * dpr);
+    osmosisCanvas.height = Math.round(rect.height * dpr);
+    osmosisState.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    osmosisState.width = rect.width;
+    osmosisState.height = rect.height;
+
+    initializeOsmosisParticles();
+}
+
+function initOsmosisSim() {
+    if (
+        !osmosisCanvas ||
+        !osmosisLeftSlider ||
+        !osmosisRightSlider ||
+        !osmosisLeftCount ||
+        !osmosisRightCount ||
+        !osmosisResetBtn
+    ) {
+        return;
+    }
+
+    osmosisState.ctx = osmosisCanvas.getContext('2d');
+    resizeOsmosisCanvas();
+
+    osmosisLeftSlider.addEventListener('input', (event) => {
+        osmosisState.leftSoluteTarget = parseInt(event.target.value, 10);
+        osmosisLeftCount.textContent = String(osmosisState.leftSoluteTarget);
+        updateOsmosisSolutes();
+    });
+
+    osmosisRightSlider.addEventListener('input', (event) => {
+        osmosisState.rightSoluteTarget = parseInt(event.target.value, 10);
+        osmosisRightCount.textContent = String(osmosisState.rightSoluteTarget);
+        updateOsmosisSolutes();
+    });
+
+    osmosisResetBtn.addEventListener('click', resetOsmosisDemo);
+    window.addEventListener('resize', resizeOsmosisCanvas);
+
+    if (osmosisState.rafId) {
+        window.cancelAnimationFrame(osmosisState.rafId);
+    }
+    animateOsmosis();
+}
+
 function setupEvents() {
     runBtn.addEventListener('click', startRun);
     resetBtn.addEventListener('click', resetExperiment);
@@ -481,6 +877,7 @@ function init() {
     createChart();
     setupEvents();
     resetExperiment();
+    initOsmosisSim();
 }
 
 init();

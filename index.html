@@ -86,6 +86,64 @@
                 <li>The isotonic point is where the graph crosses 0% change in mass.</li>
             </ul>
         </section>
+
+        <section class="panel osmosis-panel">
+            <div class="panel-head">
+                <h2>Osmosis Explanation Simulator</h2>
+                <p>Water particles can cross the membrane; solute particles cannot.</p>
+            </div>
+
+            <div class="osmosis-layout">
+                <div class="osmosis-stage">
+                    <canvas id="osmosisCanvas" aria-label="Osmosis membrane simulation" role="img"></canvas>
+                    <div class="osmosis-membrane-label">Semi-permeable membrane</div>
+                    <div class="osmosis-side-labels">
+                        <span>Dilute Side</span>
+                        <span>Concentrated Side</span>
+                    </div>
+                </div>
+
+                <div class="osmosis-config">
+                    <div class="osmosis-bars">
+                        <div class="osmosis-bar">
+                            <span>Left Water Level</span>
+                            <div class="osmosis-progress-track">
+                                <div id="osmosisLeftWaterBar" class="osmosis-progress-fill" style="width: 50%"></div>
+                            </div>
+                        </div>
+                        <div class="osmosis-bar">
+                            <span>Right Water Level</span>
+                            <div class="osmosis-progress-track">
+                                <div id="osmosisRightWaterBar" class="osmosis-progress-fill" style="width: 50%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="osmosis-slider-grid">
+                        <label class="osmosis-slider-card" for="osmosisLeftSoluteSlider">
+                            <span>Left Solute: <strong id="osmosisLeftSoluteCount">10</strong></span>
+                            <input type="range" id="osmosisLeftSoluteSlider" min="0" max="30" value="10" step="1">
+                        </label>
+                        <label class="osmosis-slider-card" for="osmosisRightSoluteSlider">
+                            <span>Right Solute: <strong id="osmosisRightSoluteCount">10</strong></span>
+                            <input type="range" id="osmosisRightSoluteSlider" min="0" max="30" value="10" step="1">
+                        </label>
+                    </div>
+
+                    <div class="osmosis-actions">
+                        <button id="osmosisResetBtn" class="ghost" type="button">Reset Osmosis Demo</button>
+                        <div class="osmosis-legend">
+                            <span><span class="legend-dot water"></span>Water</span>
+                            <span><span class="legend-dot solute"></span>Solute</span>
+                        </div>
+                    </div>
+
+                    <p class="osmosis-note">
+                        Increase solute on one side to see net water movement toward the more concentrated side.
+                    </p>
+                </div>
+            </div>
+        </section>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
