@@ -22,6 +22,9 @@ const osmosisRightCount = document.getElementById('osmosisRightSoluteCount');
 const osmosisResetBtn = document.getElementById('osmosisResetBtn');
 const osmosisLeftWaterBar = document.getElementById('osmosisLeftWaterBar');
 const osmosisRightWaterBar = document.getElementById('osmosisRightWaterBar');
+const osmosisLeftSideLabel = document.getElementById('osmosisLeftSideLabel');
+const osmosisRightSideLabel = document.getElementById('osmosisRightSideLabel');
+const osmosisSummary = document.getElementById('osmosisSummary');
 
 const state = {
     isotonicPoint: parseFloat(isotonicSlider.value),
@@ -92,7 +95,7 @@ function colorForConcentration(concentration) {
 
 function movementLabel(percentChange) {
     if (percentChange > 0.35) {
-        return 'Water entered tissue';
+        return 'Water into tissue';
     }
     if (percentChange < -0.35) {
         return 'Water left tissue';
@@ -629,6 +632,56 @@ function updateOsmosisBars(leftWater, rightWater) {
     osmosisRightWaterBar.style.width = `${(100 - boundedLeft).toFixed(1)}%`;
 }
 
+function updateOsmosisSummary() {
+    const left = osmosisState.leftSoluteTarget;
+    const right = osmosisState.rightSoluteTarget;
+    const difference = Math.abs(left - right);
+
+    if (left === right) {
+        if (osmosisLeftSideLabel) {
+            osmosisLeftSideLabel.textContent = 'Equal Concentration';
+        }
+        if (osmosisRightSideLabel) {
+            osmosisRightSideLabel.textContent = 'Equal Concentration';
+        }
+
+        if (osmosisSummary) {
+            osmosisSummary.textContent =
+                'Both sides have equal solute concentration, so water moves both ways but there is no net movement.';
+        }
+        return;
+    }
+
+    if (left > right) {
+        if (osmosisLeftSideLabel) {
+            osmosisLeftSideLabel.textContent = 'Concentrated Side';
+        }
+        if (osmosisRightSideLabel) {
+            osmosisRightSideLabel.textContent = 'Dilute Side';
+        }
+
+        if (osmosisSummary) {
+            osmosisSummary.textContent =
+                `Left side is more concentrated (${difference} higher solute units, lower water potential), so net water movement is from right to left until conditions become closer to equilibrium.`;
+        }
+        return;
+    }
+
+    if (osmosisLeftSideLabel) {
+        osmosisLeftSideLabel.textContent = 'Dilute Side';
+    }
+    if (osmosisRightSideLabel) {
+        osmosisRightSideLabel.textContent = 'Concentrated Side';
+    }
+
+    if (!osmosisSummary) {
+        return;
+    }
+
+    osmosisSummary.textContent =
+        `Right side is more concentrated (${difference} higher solute units, lower water potential), so net water movement is from left to right until conditions become closer to equilibrium.`;
+}
+
 function drawOsmosisMembrane() {
     const { ctx, width, height } = osmosisState;
     const membraneX = width / 2;
@@ -802,6 +855,8 @@ function resetOsmosisDemo() {
         osmosisRightCount.textContent = '10';
     }
 
+    updateOsmosisSummary();
+
     initializeOsmosisParticles();
     if (osmosisLeftWaterBar && osmosisRightWaterBar) {
         osmosisLeftWaterBar.style.width = '50%';
@@ -849,12 +904,14 @@ function initOsmosisSim() {
         osmosisState.leftSoluteTarget = parseInt(event.target.value, 10);
         osmosisLeftCount.textContent = String(osmosisState.leftSoluteTarget);
         updateOsmosisSolutes();
+        updateOsmosisSummary();
     });
 
     osmosisRightSlider.addEventListener('input', (event) => {
         osmosisState.rightSoluteTarget = parseInt(event.target.value, 10);
         osmosisRightCount.textContent = String(osmosisState.rightSoluteTarget);
         updateOsmosisSolutes();
+        updateOsmosisSummary();
     });
 
     osmosisResetBtn.addEventListener('click', resetOsmosisDemo);
@@ -863,6 +920,8 @@ function initOsmosisSim() {
     if (osmosisState.rafId) {
         window.cancelAnimationFrame(osmosisState.rafId);
     }
+
+    updateOsmosisSummary();
     animateOsmosis();
 }
 

@@ -90,7 +90,7 @@
         <section class="panel osmosis-panel">
             <div class="panel-head">
                 <h2>Osmosis Explanation Simulator</h2>
-                <p>Water particles can cross the membrane; solute particles cannot.</p>
+                <p>Explore how a concentration gradient causes net water movement across a partially permeable membrane.</p>
             </div>
 
             <div class="osmosis-layout">
@@ -98,8 +98,8 @@
                     <canvas id="osmosisCanvas" aria-label="Osmosis membrane simulation" role="img"></canvas>
                     <div class="osmosis-membrane-label">Semi-permeable membrane</div>
                     <div class="osmosis-side-labels">
-                        <span>Dilute Side</span>
-                        <span>Concentrated Side</span>
+                        <span id="osmosisLeftSideLabel">Equal Concentration</span>
+                        <span id="osmosisRightSideLabel">Equal Concentration</span>
                     </div>
                 </div>
 
@@ -136,6 +136,22 @@
                             <span><span class="legend-dot water"></span>Water</span>
                             <span><span class="legend-dot solute"></span>Solute</span>
                         </div>
+                    </div>
+
+                    <div class="osmosis-explainer">
+                        <h3>What is osmosis?</h3>
+                        <p>
+                            Osmosis is the net movement of water molecules from a dilute solution (higher water potential)
+                            to a more concentrated solution (lower water potential) through a partially permeable membrane.
+                        </p>
+                        <ul>
+                            <li>Water molecules can pass through membrane gaps, but solute particles cannot.</li>
+                            <li>Water moves in both directions, but net movement is toward the more concentrated side.</li>
+                            <li>Net movement slows as the concentration difference becomes smaller.</li>
+                        </ul>
+                        <p id="osmosisSummary" class="osmosis-summary" aria-live="polite">
+                            Both sides currently have equal solute concentration, so there is no net water movement.
+                        </p>
                     </div>
 
                     <p class="osmosis-note">

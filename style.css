@@ -80,8 +80,13 @@ h1 {
 
 .layout {
     display: grid;
-    grid-template-columns: 1.25fr 1fr;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
     gap: 18px;
+    align-items: start;
+}
+
+.layout > .panel {
+    min-width: 0;
 }
 
 .panel {
@@ -400,12 +405,14 @@ body.running .bubble {
     border: 1px solid #d7e4f0;
     border-radius: 14px;
     overflow: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 table {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.86rem;
+    min-width: 520px;
 }
 
 thead {
@@ -605,6 +612,43 @@ tbody td {
     border: 1px solid #f5c8a5;
 }
 
+.osmosis-explainer {
+    border: 1px solid #d6e4f2;
+    border-radius: 12px;
+    background: #ffffff;
+    padding: 10px;
+    display: grid;
+    gap: 8px;
+}
+
+.osmosis-explainer h3 {
+    font-size: 0.94rem;
+    color: #244566;
+}
+
+.osmosis-explainer p,
+.osmosis-explainer li {
+    font-size: 0.84rem;
+    color: #45607f;
+    line-height: 1.4;
+}
+
+.osmosis-explainer ul {
+    margin: 0;
+    padding-left: 18px;
+    display: grid;
+    gap: 4px;
+}
+
+.osmosis-summary {
+    font-weight: 600;
+    color: #244c70;
+    background: #f2f8ff;
+    border: 1px solid #d6e7f6;
+    border-radius: 10px;
+    padding: 8px;
+}
+
 .osmosis-note {
     font-size: 0.85rem;
     color: #4c6582;
@@ -658,29 +702,101 @@ tbody td {
 
 @media (max-width: 780px) {
     body {
-        padding: 14px;
+        padding: 12px;
+    }
+
+    .app-shell {
+        gap: 14px;
+    }
+
+    .hero {
+        border-radius: 20px;
+        padding: 22px 20px;
     }
 
     .panel {
         padding: 16px;
     }
 
+    .panel-head h2 {
+        font-size: 1.18rem;
+    }
+
+    .panel-head p {
+        font-size: 0.9rem;
+    }
+
+    .timeline-labels {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
     .beaker-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    .beaker-visual {
+        height: 156px;
+    }
+
     .chart-wrap {
-        min-height: 280px;
+        min-height: 250px;
     }
 
     #resultsChart {
-        height: 260px;
+        height: 230px;
+    }
+
+    .osmosis-stage,
+    #osmosisCanvas {
+        min-height: 320px;
+        height: 320px;
+    }
+
+    .osmosis-side-labels {
+        font-size: 0.78rem;
+        padding: 0 12px;
     }
 }
 
 @media (max-width: 560px) {
+    body {
+        padding: 10px;
+    }
+
+    .app-shell {
+        gap: 12px;
+    }
+
+    .hero {
+        border-radius: 18px;
+        padding: 18px 16px;
+    }
+
+    h1 {
+        font-size: 1.45rem;
+    }
+
+    .subtitle {
+        font-size: 0.92rem;
+    }
+
+    .panel {
+        padding: 14px;
+        border-radius: 18px;
+    }
+
     .beaker-grid {
         grid-template-columns: 1fr;
+    }
+
+    .beaker-card {
+        padding: 10px;
+    }
+
+    .beaker-visual {
+        height: 142px;
     }
 
     .button-row {
@@ -691,11 +807,61 @@ tbody td {
         width: 100%;
     }
 
+    table {
+        min-width: 0;
+        font-size: 0.8rem;
+    }
+
+    th,
+    td {
+        white-space: normal;
+        padding: 8px;
+    }
+
+    .osmosis-config {
+        padding: 10px;
+    }
+
+    .osmosis-explainer p,
+    .osmosis-explainer li,
+    .osmosis-note {
+        font-size: 0.8rem;
+    }
+
     #osmosisCanvas {
-        height: 300px;
+        height: 260px;
     }
 
     .osmosis-stage {
-        min-height: 300px;
+        min-height: 260px;
+    }
+
+    .osmosis-membrane-label {
+        top: 8px;
+        font-size: 0.72rem;
+        padding: 3px 8px;
+    }
+
+    .osmosis-side-labels {
+        font-size: 0.74rem;
+        padding: 0 10px;
+    }
+}
+
+@media (max-width: 420px) {
+    h1 {
+        font-size: 1.3rem;
+    }
+
+    .kicker {
+        font-size: 0.72rem;
+    }
+
+    .chart-wrap {
+        min-height: 220px;
+    }
+
+    #resultsChart {
+        height: 210px;
     }
 }
